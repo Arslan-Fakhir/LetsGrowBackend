@@ -8,3 +8,39 @@ const dotenv = require('dotenv');
 dotenv.config();
 
 const port = process.env.PORT
+/*app.listen(port, () => {
+  console.log(`Server running on port ${port}`); // This should log the port
+});*/
+require('./db')
+
+
+const allowedOrigins = [process.env.FRONTEND_URL]; // Add more origins as needed
+
+app.use(
+    cors({
+        origin: function (origin, callback) {
+            if (!origin || allowedOrigins.includes(origin)) {
+                callback(null, true);
+            }
+            else {
+                callback(new Error('Not allowed by CORS'));
+            }
+        },
+        credentials: true
+    })
+)
+app.use(bodyParser.json());
+app.use(cookieParser({
+    httpOnly: true,
+    secure: true,
+    sameSite: 'none',
+    maxAge: 1000 * 60 * 60 * 24 * 7,
+    signed: true
+}));
+
+const authRoutes = require('./routes/authRoutes')
+//const classroomRoutes = require('./routes/classroomRoutes')
+
+
+app.use('/auth', authRoutes)
+//app.use('/class', classroomRoutes)
