@@ -7,14 +7,15 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 dotenv.config();
 
+
 const port = process.env.PORT
-/*app.listen(port, () => {
-  console.log(`Server running on port ${port}`); // This should log the port
-});*/
 require('./db')
 
-
-const allowedOrigins = [process.env.FRONTEND_URL]; // Add more origins as needed
+// Update allowed origins to include your React dev server
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  'http://localhost:5173' // Add your React dev server
+]; 
 
 app.use(
     cors({
@@ -44,3 +45,16 @@ const authRoutes = require('./routes/authRoutes')
 
 app.use('/auth', authRoutes)
 //app.use('/class', classroomRoutes)
+
+
+app.get('/', (req, res) => {
+    res.send('Hello World!')
+})
+
+app.get('/getuserdata', (req, res) => {
+    res.send('Harshal Jain , 45 , Male')
+})
+
+app.listen(port, () => {
+    console.log(`LetsGrow backend app listening on port ${port}`)
+})
