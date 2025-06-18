@@ -86,7 +86,6 @@ router.post('/sendotp', async (req, res) => {
     }
 });
 
-
 router.post('/register', async (req, res) => {
     const { name, email, password, otp, role } = req.body;
     if (!name || !email || !password || !otp || !role) {
@@ -175,11 +174,11 @@ router.get('/checklogin', authTokenHandler, async (req, res, next) => {
     res.json({
         ok: req.ok,
         message: req.message,
-        userId: req.userId
+        userId: req.userId,
+        role: req.role
     })
 }
 )
-
 
 router.get('/getuser', authTokenHandler, async (req, res, next) => {
 
@@ -208,5 +207,16 @@ router.get('/logout', authTokenHandler, async (req, res, next) => {
         message: 'Logged out successfully'
     })
 })
+
+
+/////////////////////////////////////////////////////////////////////////
+
+
+
+
+
+
+
+
 
 module.exports = router;
