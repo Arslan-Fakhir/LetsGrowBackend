@@ -46,11 +46,13 @@ app.use(cookieParser({
 
 // Import routes
 const authRoutes = require('./routes/authRoutes');
-const startupRoutes = require('./routes/startupRoutes');
+const startupRoutes = require("./routes/startupRoutes");
+const manpowerRoutes = require("./routes/manpowerRoutes");
 
 // Use routes
 app.use('/auth', authRoutes);
-app.use('/api/startups', startupRoutes);
+app.use("/api/startups", startupRoutes);
+app.use("/api/manpower", manpowerRoutes);
 
 // Health check endpoint
 app.get('/', (req, res) => {

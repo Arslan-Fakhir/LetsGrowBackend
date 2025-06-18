@@ -1,51 +1,18 @@
-const mongoose = require('mongoose');
+// models/manpowerModel.js
+const mongoose = require("mongoose");
 
-const manpowerSchema = new mongoose.Schema({
-    position: { 
-        required: true, 
-        type: String 
-    },
-    requirements: { 
-        required: true, 
-        type: String 
-    },
-    count: { 
-        required: true, 
-        type: Number,
-        min: 1
-    },
-    timeline: { 
-        required: true, 
-        type: String 
-    },
-    employmentType: { 
-        type: String, 
-        enum: ['full-time', 'part-time', 'contract', 'internship'], 
-        default: 'full-time',
-        required: true 
-    },
-    location: { 
-        type: String, 
-        enum: ['on-site', 'remote', 'hybrid'], 
-        default: 'on-site',
-        required: true 
-    },
-    status: { 
-        type: String, 
-        enum: ['pending', 'in-progress', 'fulfilled', 'cancelled'], 
-        default: 'pending',
-        required: true 
-    },
-    startup_id: { 
-        type: mongoose.Schema.Types.ObjectId, 
-        ref: 'Startup', 
-        required: true 
-    },
-    entrepreneur_id: { 
-        type: mongoose.Schema.Types.ObjectId, 
-        ref: 'User', 
-        required: true 
-    }
-}, { timestamps: true });
+const manpowerSchema = new mongoose.Schema(
+  {
+    position: { type: String, required: true },
+    requirements: { type: String, required: true },
+    count: { type: Number, required: true },
+    timeline: { type: String, required: true },
+    employmentType: { type: String, required: true },
+    location: { type: String, required: true },
+  },
+  { timestamps: true }
+);
 
-module.exports = mongoose.model('Manpower', manpowerSchema);
+const Manpower = mongoose.model("Manpower", manpowerSchema);
+
+module.exports = Manpower;
