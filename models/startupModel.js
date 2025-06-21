@@ -7,7 +7,8 @@ const startupSchema = new mongoose.Schema({
   fundingRequired: { type: Number, required: true },
   stage: { type: String, required: true },
   status: { type: String, enum: ["pending", "approved", "rejected"], default: "pending" },
-  feedback: { type: String, default: "" },
+  rating: { type: String, default: "" },
+  imageUrl: { type: String },
   entrepreneurId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true }, // ✅ fixed here
 }, { timestamps: true });
 

@@ -16,29 +16,26 @@ const authTokenHandler = require('../middlewares/checkAuthToken');
 const mailer = async (recieveremail, code) => {
     let transporter = nodemailer.createTransport({
         host: "smtp.gmail.com",
-        post: 587,
+        port: 587,
         secure: false,
         requireTLS: true,
         auth: {
             user: process.env.COMPANY_EMAIL,
             pass: process.env.GMAIL_APP_PASSWORD
         }
-    })
+    });
+
     let info = await transporter.sendMail({
-        from: "Team  Let's Grow",
+        from: "Team Let's Grow",
         to: recieveremail,
         subject: "OTP for Let's Grow",
-        text: "Your OTP is " + code,
-        html: "<b>Your OTP is " + code + "</b>",
-    })
+        text: `Your OTP is ${code} (valid for 10 minutes)`,
+        html: `<b>Your OTP is ${code} (valid for 10 minutes)</b>`,
+    });
 
     console.log("Message sent: %s", info.messageId);
-    if (info.messageId) {
-        return true;
-    }
-    return false;
-}
-
+    return !!info.messageId;
+};
 router.get('/', (req, res) => {
     res.json({
         message: 'Auth route home'
@@ -49,39 +46,36 @@ router.get('/', (req, res) => {
 router.post('/sendotp', async (req, res) => {
     const { email } = req.body;
     
-    // 1. Enhanced email validation
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
         return responseFunction(res, 400, "Valid email is required", null, false);
     }
 
     try {
-        // 2. Delete existing OTPs for this email
+        // Delete existing OTPs for this email
         await Verification.deleteMany({ email });
 
-        // 3. Generate secure OTP
+        // Generate secure OTP
         const code = Math.floor(100000 + Math.random() * 900000).toString();
         const hashedCode = await bcrypt.hash(code, 10);
 
-        // 4. Save OTP with expiration (10 minutes)
+        // Save OTP with expiration (10 minutes)
         const newVerification = new Verification({
             email,
-            code: hashedCode,
+            code: code,
             expiresAt: new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
         });
         await newVerification.save();
 
-        // 5. Send OTP email with error handling
+        // Send OTP email
         const isSent = await mailer(email, code);
         if (!isSent) {
-            await Verification.deleteOne({ email }); // Clean up if email fails
+            await Verification.deleteOne({ email });
             return responseFunction(res, 500, "Failed to send OTP email", null, false);
         }
 
-        // 6. Success response
         return responseFunction(res, 200, "OTP sent successfully", null, true);
-    }
-    catch (err) {
-        console.error("OTP Error:", err); // Detailed logging
+    } catch (err) {
+        console.error("OTP Error:", err);
         return responseFunction(res, 500, "Error processing OTP request", null, false);
     }
 });
@@ -214,6 +208,11 @@ router.get('/logout', authTokenHandler, async (req, res, next) => {
 
 
 
+
+
+
+
+// ... rest of your authRoutes.js remains the same ...
 
 
 
