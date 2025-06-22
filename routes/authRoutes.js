@@ -36,12 +36,12 @@ const mailer = async (recieveremail, code) => {
     console.log("Message sent: %s", info.messageId);
     return !!info.messageId;
 };
+
 router.get('/', (req, res) => {
     res.json({
         message: 'Auth route home'
     })
 })
-
 
 router.post('/sendotp', async (req, res) => {
     const { email } = req.body;
@@ -162,7 +162,6 @@ router.post('/login', async (req, res, next) => {
     }
 })
 
-
 router.get('/checklogin', authTokenHandler, async (req, res, next) => {
     console.log('check login',req.message)
     res.json({
@@ -190,7 +189,6 @@ router.get('/getuser', authTokenHandler, async (req, res, next) => {
         return responseFunction(res, 500, 'Internal server error', err, false);
     }
 })
-
 
 router.get('/logout', authTokenHandler, async (req, res, next) => {
     res.clearCookie('authToken');

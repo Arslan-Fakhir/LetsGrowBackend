@@ -3,7 +3,7 @@ const router = express.Router();
 const Startup = require("../models/startupModel");
 const checkAuth = require('../middlewares/checkAuthToken');
 
-// ✅ POST /api/startups/sendForm — Submit a new startup application
+// POST /api/startups/sendForm — Submit a new startup application
 router.post("/sendForm", checkAuth, async (req, res) => {
   try {
     const { startupName, description, industry, fundingRequired, stage } = req.body;
@@ -16,10 +16,10 @@ router.post("/sendForm", checkAuth, async (req, res) => {
       startupName,
       description,
       industry,
-      fundingRequired: Number(fundingRequired), // Ensure it's stored as number
+      fundingRequired: Number(fundingRequired),
       stage,
       status: "pending",
-      entrepreneurId: req.userId, // This will be the ObjectId from your image
+      entrepreneurId: req.userId,
     });
 
     const savedStartup = await newStartup.save();
@@ -34,7 +34,7 @@ router.post("/sendForm", checkAuth, async (req, res) => {
   }
 });
 
-// ✅ GET /api/startups — Fetch all startup ideas with entrepreneur info for Admin
+// GET /api/startups — Fetch all startup ideas with entrepreneur info for Admin
 router.get("/getIdeas", async (req, res) => {
   try {
     const startups = await Startup.find().populate("entrepreneurId", "name email");
@@ -44,10 +44,11 @@ router.get("/getIdeas", async (req, res) => {
     res.status(500).json({ message: "Internal server error." });
   }
 });
-// ✅ GET /api/startups — Fetch all approved startup ideas with entrepreneur info for Investor
+
+// GET /api/startups — Fetch all approved startup ideas with entrepreneur info for Investor
 router.get("/startups", async (req, res) => {
   try {
-    const startups = await Startup.find({ status: "approved" }) // This filters for approved
+    const startups = await Startup.find({ status: "approved" })
       .populate("entrepreneurId", "name email")
       .select("-__v");
     res.status(200).json(startups);
@@ -56,7 +57,7 @@ router.get("/startups", async (req, res) => {
   }
 });
 
-// ✅ PUT /api/startups/:id — Update startup status and feedback
+// PUT /api/startups/:id — Update startup status and feedback
 router.put("/:id", async (req, res) => {
   try {
     const { id } = req.params;
@@ -84,7 +85,7 @@ router.put("/:id", async (req, res) => {
   }
 });
 
-// ✅ DELETE /api/startups/:id — Delete a startup idea
+// DELETE /api/startups/:id — Delete a startup idea
 router.delete("/:id", async (req, res) => {
   try {
     const { id } = req.params;
@@ -102,28 +103,42 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
-// Update the GET /:id endpoint to properly populate entrepreneur data
+// GET /api/startups/:id — Get specific startup details
 router.get("/:id", async (req, res) => {
   try {
     const startup = await Startup.findById(req.params.id)
       .populate({
         path: 'entrepreneurId',
-        select: 'name email role' // Include all fields you need
+        select: 'name email contactNumber location.city location.country'
       })
-      .lean(); // Convert to plain JavaScript object
+      .lean();
 
     if (!startup) {
       return res.status(404).json({ message: "Startup not found" });
     }
 
-    // Transform the data to match frontend expectations
+    // Format location string
+    const locationParts = [];
+    if (startup.entrepreneurId?.location?.city) {
+      locationParts.push(startup.entrepreneurId.location.city);
+    }
+    if (startup.entrepreneurId?.location?.country) {
+      locationParts.push(startup.entrepreneurId.location.country);
+    }
+    const locationString = locationParts.join(', ') || 'N/A';
+
     const response = {
       ...startup,
       entrepreneurId: {
         _id: startup.entrepreneurId._id,
         name: startup.entrepreneurId.name,
         email: startup.entrepreneurId.email,
-        role: startup.entrepreneurId.role
+        contactNumber: startup.entrepreneurId.contactNumber || "N/A",
+        location: locationString
+      },
+      image: {
+        url: startup.image?.url || null,
+        public_id: startup.image?.public_id || null
       }
     };
 
@@ -133,4 +148,5 @@ router.get("/:id", async (req, res) => {
     res.status(500).json({ message: "Internal server error" });
   }
 });
+
 module.exports = router;
