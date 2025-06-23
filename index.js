@@ -49,12 +49,15 @@ const authRoutes = require('./routes/authRoutes');
 const startupRoutes = require("./routes/startupRoutes");
 const manpowerRoutes = require("./routes/manpowerRoutes");
 const userRoutes = require('./routes/userRoutes');
+const investmentRoutes = require('./routes/investmentRoutes');
 
 // Use routes
 app.use('/auth', authRoutes);
 app.use("/api/startups", startupRoutes);
 app.use("/api/manpower", manpowerRoutes);
 app.use("/api/user", userRoutes);
+app.use('/api/investment', investmentRoutes);
+
 
 // Health check endpoint
 app.get('/', (req, res) => {

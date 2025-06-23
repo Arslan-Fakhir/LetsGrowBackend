@@ -1,176 +1,292 @@
-// investmentRoutes.js
+// routes/investmentRoutes.js
 const express = require('express');
 const router = express.Router();
+const Stripe = require('stripe');
 const Investment = require('../models/investmentModel');
-const Startup = require('../models/Startup');
-const { authenticateToken } = require('../middlewares/checkAuthToken');
+const Startup = require('../models/startupModel');
+const User = require('../models/userModel');
+const { authenticateUser } = require('../middlewares/checkAuthToken');
+const { sendInvestmentConfirmationEmail } = require('../utils/emailService');
 
-// Create investment
-router.post('/investments', authenticateToken, async (req, res) => {
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
+// Create Stripe checkout session
+router.post('/create-checkout-session',  async (req, res) => {
   try {
-    const { amount, startup_id, investment_type, equity_percentage } = req.body;
-    
-    if (!amount || !startup_id) {
-      return res.status(400).json({ message: 'Amount and startup_id are required' });
+    const { amount, startupId, startupName, image, currency } = req.body;
+    const userId = req.userId; // From auth middleware
+
+    // Validate input
+    if (!amount || amount <= 0 || !startupId || !currency) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Invalid request data'
+      });
     }
-    
-    if (amount <= 0) {
-      return res.status(400).json({ message: 'Investment amount must be positive' });
-    }
-    
-    // Check if startup exists
-    const startup = await Startup.findById(startup_id);
-    if (!startup) {
-      return res.status(404).json({ message: 'Startup not found' });
-    }
-    
-    const investment = new Investment({
-      amount,
-      startup_id,
-      investor_id: req.user.userId,
-      investment_type: investment_type || 'equity',
-      equity_percentage,
-      status: 'pending'
+
+    // Create Stripe session
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [{
+        price_data: {
+          currency: currency.toLowerCase(),
+          product_data: {
+            name: `Investment in ${startupName}`,
+            images: image ? [image] : [],
+          },
+          unit_amount: Math.round(amount * 100), // Convert to cents
+        },
+        quantity: 1,
+      }],
+      mode: 'payment',
+      success_url: `${process.env.FRONTEND_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${process.env.FRONTEND_URL}/cancel`,
+      client_reference_id: userId,
+      metadata: {
+        startupId,
+        amount: amount.toString(),
+        startupName,
+      },
     });
-    
-    await investment.save();
-    
-    // Update startup funding received
-    await Startup.findByIdAndUpdate(startup_id, {
-      $inc: { funding_received: amount }
+    ////
+    console.log('Backend send session id: ',session.id)
+    ////
+    res.json({ 
+      success: true,
+      data: { id: session.id } // Ensure this matches frontend expectation
     });
-    
-    res.status(201).json({ message: 'Investment created successfully', investment });
-  } catch (error) {
-    res.status(400).json({ message: error.message });
-  }
-});
 
-// Get all investments
-router.get('/investments', authenticateToken, async (req, res) => {
-  try {
-    const { status, startup_id } = req.query;
-    const filter = {};
-    
-    if (status) filter.status = status;
-    if (startup_id) filter.startup_id = startup_id;
-    
-    const investments = await Investment.find(filter)
-      .populate('startup_id', 'name industry')
-      .populate('investor_id', 'name email')
-      .sort({ createdAt: -1 });
-    res.json(investments);
   } catch (error) {
-    res.status(400).json({ message: error.message });
-  }
-});
-
-// Get investments by current user (investor)
-router.get('/investments/my', authenticateToken, async (req, res) => {
-  try {
-    const investments = await Investment.find({ investor_id: req.user.userId })
-      .populate('startup_id', 'name industry')
-      .sort({ createdAt: -1 });
-    res.json(investments);
-  } catch (error) {
-    res.status(400).json({ message: error.message });
-  }
-});
-
-// Get investments received by entrepreneur's startups
-router.get('/investments/received', authenticateToken, async (req, res) => {
-  try {
-    const startups = await Startup.find({ entrepreneur_id: req.user.userId }).select('_id');
-    const startupIds = startups.map(startup => startup._id);
-    
-    const investments = await Investment.find({ startup_id: { $in: startupIds } })
-      .populate('startup_id', 'name industry')
-      .populate('investor_id', 'name email')
-      .sort({ createdAt: -1 });
-    res.json(investments);
-  } catch (error) {
-    res.status(400).json({ message: error.message });
-  }
-});
-
-// Get specific investment
-router.get('/investments/:id', authenticateToken, async (req, res) => {
-  try {
-    const investment = await Investment.findById(req.params.id)
-      .populate('startup_id', 'name industry')
-      .populate('investor_id', 'name email');
-    
-    if (!investment) {
-      return res.status(404).json({ message: 'Investment not found' });
-    }
-    
-    res.json(investment);
-  } catch (error) {
-    res.status(400).json({ message: error.message });
-  }
-});
-
-// Update investment status
-router.put('/investments/:id', authenticateToken, async (req, res) => {
-  try {
-    const { status, notes } = req.body;
-    const validStatuses = ['pending', 'approved', 'rejected', 'completed'];
-    
-    if (status && !validStatuses.includes(status)) {
-      return res.status(400).json({ message: 'Invalid status' });
-    }
-    
-    const investment = await Investment.findById(req.params.id);
-    if (!investment) {
-      return res.status(404).json({ message: 'Investment not found' });
-    }
-    
-    const updateData = {};
-    if (status) updateData.status = status;
-    if (notes) updateData.notes = notes;
-    
-    const updatedInvestment = await Investment.findByIdAndUpdate(
-      req.params.id,
-      updateData,
-      { new: true }
-    )
-      .populate('startup_id', 'name industry')
-      .populate('investor_id', 'name email');
-    
-    res.json({ message: 'Investment updated successfully', investment: updatedInvestment });
-  } catch (error) {
-    res.status(400).json({ message: error.message });
-  }
-});
-
-// Delete investment (only if pending)
-router.delete('/investments/:id', authenticateToken, async (req, res) => {
-  try {
-    const investment = await Investment.findById(req.params.id);
-    
-    if (!investment) {
-      return res.status(404).json({ message: 'Investment not found' });
-    }
-    
-    // Only allow deletion by the investor and only if pending
-    if (investment.investor_id.toString() !== req.user.userId) {
-      return res.status(403).json({ message: 'Access denied' });
-    }
-    
-    if (investment.status !== 'pending') {
-      return res.status(400).json({ message: 'Can only delete pending investments' });
-    }
-    
-    // Revert funding received
-    await Startup.findByIdAndUpdate(investment.startup_id, {
-      $inc: { funding_received: -investment.amount }
+    console.error('Error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Payment failed'
     });
-    
-    await Investment.findByIdAndDelete(req.params.id);
-    res.json({ message: 'Investment deleted successfully' });
-  } catch (error) {
-    res.status(400).json({ message: error.message });
   }
+});
+
+// Stripe webhook handler
+router.post('/webhook', express.raw({type: 'application/json'}), async (req, res) => {
+    const sig = req.headers['stripe-signature'];
+    const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+    let event;
+
+    try {
+        event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
+    } catch (err) {
+        console.error('⚠️ Webhook signature verification failed:', err.message);
+        return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    // Handle the event
+    switch (event.type) {
+        case 'checkout.session.completed':
+            const session = event.data.object;
+            await handleCheckoutSessionCompleted(session);
+            break;
+        // Add other event types as needed
+        default:
+            console.log(`Unhandled event type ${event.type}`);
+    }
+
+    res.json({received: true});
+});
+
+async function handleCheckoutSessionCompleted(session) {
+    try {
+        // Create investment record
+        const investment = new Investment({
+            investor: session.client_reference_id,
+            startup: session.metadata.startupId,
+            amount: parseFloat(session.metadata.amount),
+            stripeSessionId: session.id,
+            paymentStatus: 'completed',
+            transactionDetails: {
+                paymentIntent: session.payment_intent,
+                customerEmail: session.customer_details?.email
+            }
+        });
+
+        await investment.save();
+
+        // Update startup funding
+        await Startup.findByIdAndUpdate(
+            session.metadata.startupId,
+            { $inc: { fundingReceived: parseFloat(session.metadata.amount) } },
+            { new: true }
+        );
+
+        // Send confirmation email
+        const user = await User.findById(session.client_reference_id);
+        const startup = await Startup.findById(session.metadata.startupId);
+        
+        if (user && startup) {
+            await sendInvestmentConfirmationEmail(
+                user.email,
+                user.name,
+                startup.startupName,
+                session.metadata.amount
+            );
+        }
+    } catch (err) {
+        console.error('Error handling checkout.session.completed:', err);
+    }
+}
+
+// Get investments for a startup
+router.get('/startup/:startupId', async (req, res) => {
+    try {
+        const investments = await Investment.find({ startup: req.params.startupId })
+            .populate('investor', 'name email')
+            .sort({ createdAt: -1 });
+
+        res.json({ 
+            success: true,
+            message: 'Investments retrieved successfully',
+            data: investments
+        });
+
+    } catch (error) {
+        console.error('Error fetching investments:', error);
+        res.status(500).json({ 
+            success: false,
+            message: 'Failed to fetch investments',
+            error: error.message
+        });
+    }
+});
+
+// Get user's investments
+router.get('/user',  async (req, res) => {
+    try {
+        const investments = await Investment.find({ investor: req.userId })
+            .populate('startup', 'startupName industry')
+            .sort({ createdAt: -1 });
+
+        res.json({ 
+            success: true,
+            message: 'User investments retrieved successfully',
+            data: investments
+        });
+
+    } catch (error) {
+        console.error('Error fetching user investments:', error);
+        res.status(500).json({ 
+            success: false,
+            message: 'Failed to fetch user investments',
+            error: error.message
+        });
+    }
+});
+
+// Updated verify-payment endpoint with authentication and better error handling
+router.get('/verify-payment', async (req, res) => {
+    try {
+        const { session_id } = req.query;
+        
+        if (!session_id) {
+            return res.status(400).json({ 
+                success: false,
+                message: 'Session ID is required'
+            });
+        }
+
+        // 1. Check database first
+        const existingInvestment = await Investment.findOne({ 
+            stripeSessionId: session_id
+        }).populate('startup', 'startupName');
+
+        if (existingInvestment) {
+            return res.json({ 
+                success: true,
+                message: 'Payment already recorded',
+                data: existingInvestment
+            });
+        }
+
+        // 2. Verify with Stripe
+        const session = await stripe.checkout.sessions.retrieve(session_id, {
+            expand: ['payment_intent']
+        });
+
+        // 3. Validate payment status
+        if (session.payment_status !== 'paid') {
+            return res.status(400).json({ 
+                success: false,
+                message: 'Payment not completed',
+                payment_status: session.payment_status
+            });
+        }
+
+        // 4. Validate startup exists
+        const startup = await Startup.findById(session.metadata.startupId);
+        if (!startup) {
+            return res.status(400).json({
+                success: false,
+                message: 'Startup not found'
+            });
+        }
+
+        // 5. Create investment record - FIX: Use both client_reference_id and req.userId
+        const investorId = session.client_reference_id || req.userId;
+        if (!investorId) {
+            return res.status(400).json({
+                success: false,
+                message: 'Could not determine investor'
+            });
+        }
+
+        const investment = new Investment({
+            investor: investorId,
+            startup: session.metadata.startupId,
+            amount: parseFloat(session.metadata.amount),
+            stripeSessionId: session.id,
+            paymentStatus: 'completed',
+            transactionDetails: {
+                paymentIntent: session.payment_intent,
+                customerEmail: session.customer_details?.email
+            }
+        });
+
+        await investment.save();
+
+        // 6. Update startup funding
+        await Startup.findByIdAndUpdate(
+            session.metadata.startupId,
+            { $inc: { fundingReceived: parseFloat(session.metadata.amount) } }
+        );
+
+        // 7. Send confirmation email
+        const user = await User.findById(investorId);
+        if (user && startup) {
+            await sendInvestmentConfirmationEmail(
+                user.email,
+                user.name,
+                startup.startupName,
+                session.metadata.amount
+            );
+        }
+
+        return res.json({ 
+            success: true,
+            message: 'Payment verified and recorded',
+            data: investment
+        });
+
+    } catch (error) {
+        console.error('Payment verification error:', {
+            message: error.message,
+            stack: error.stack,
+            stripeError: error.type || 'N/A'
+        });
+        
+        return res.status(500).json({ 
+            success: false,
+            message: 'Failed to verify payment',
+            error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+        });
+    }
 });
 
 module.exports = router;
