@@ -18,7 +18,6 @@ const startupSchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
-    // Add this to the schema fields:
     fundingReceived: {
       type: Number,
       min: 0,

@@ -6,15 +6,14 @@ const Investment = require('../models/investmentModel');
 const Startup = require('../models/startupModel');
 const User = require('../models/userModel');
 const { authenticateUser } = require('../middlewares/checkAuthToken');
-const { sendInvestmentConfirmationEmail } = require('../utils/emailService');
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 // Create Stripe checkout session
 router.post('/create-checkout-session',  async (req, res) => {
   try {
-    const { amount, startupId, startupName, image, currency } = req.body;
-    const userId = req.userId; // From auth middleware
+    const { amount, startupId, startupName, image, currency, investorId } = req.body;
+
 
     // Validate input
     if (!amount || amount <= 0 || !startupId || !currency) {
@@ -31,8 +30,9 @@ router.post('/create-checkout-session',  async (req, res) => {
         price_data: {
           currency: currency.toLowerCase(),
           product_data: {
-            name: `Investment in ${startupName}`,
-            images: image ? [image] : [],
+            name: `${startupId}`,
+            images: image ? [image]: [],
+            description:`Startup: ${startupName}`   
           },
           unit_amount: Math.round(amount * 100), // Convert to cents
         },
@@ -41,16 +41,38 @@ router.post('/create-checkout-session',  async (req, res) => {
       mode: 'payment',
       success_url: `${process.env.FRONTEND_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${process.env.FRONTEND_URL}/cancel`,
-      client_reference_id: userId,
+      client_reference_id: investorId,
       metadata: {
         startupId,
         amount: amount.toString(),
         startupName,
       },
     });
-    ////
-    console.log('Backend send session id: ',session.id)
-    ////
+
+    //////////////////          Testing         /////////////////
+    //console.log('req data',req.body)
+    //console.log('Backend send session id: ',session.id)
+    /////////////////////////////////////////////////////////////
+
+    if(session){
+        const investment = new Investment({
+            investorId: session.client_reference_id,
+            startupId: session.metadata.startupId,
+            amount: parseFloat(session.metadata.amount),
+            stripeSessionId: session.id,
+            paymentStatus: 'completed'
+        });
+
+        await investment.save();
+
+        await Startup.findByIdAndUpdate(
+            session.metadata.startupId,
+            { $inc: { fundingReceived: parseFloat(session.metadata.amount) } },
+            { new: true }
+        );
+    }
+    
+    
     res.json({ 
       success: true,
       data: { id: session.id } // Ensure this matches frontend expectation
@@ -65,6 +87,177 @@ router.post('/create-checkout-session',  async (req, res) => {
   }
 });
 
+
+router.get('/:investorId', async (req, res) => {
+  try {
+    // 1. Find all completed investments for the current investor
+    const investments = await Investment.find({ 
+      investorId: req.params.investorId,
+      paymentStatus: 'completed'
+    });
+
+    // 2. Calculate total investment sum across all investments
+    const totalInvested = investments.reduce((sum, investment) => sum + investment.amount, 0);
+
+    // 3. Extract unique startup IDs from investments
+    const startupIds = [...new Set(investments.map(inv => inv.startupId))];
+
+    if (startupIds.length === 0) {
+      return res.json({
+        success: true,
+        message: 'You have not invested in any startups yet',
+        data: [],
+        count: 0,
+        totalInvested: 0  // Return 0 when no investments exist
+      });
+    }
+
+    // 4. Get detailed information about these startups
+    const startups = await Startup.find({
+      _id: { $in: startupIds }
+    }).select('startupName description industry startupImage fundingRequired fundingReceived stage status entrepreneurId');
+
+    // 5. Get entrepreneur user details for all startups
+    const entrepreneurIds = startups.map(startup => startup.entrepreneurId);
+    const entrepreneurs = await User.find({
+      _id: { $in: entrepreneurIds }
+    }).select('name email contactNumber location');
+
+    // Create a map of entrepreneurId to entrepreneur details for quick lookup
+    const entrepreneurMap = {};
+    entrepreneurs.forEach(entrepreneur => {
+      entrepreneurMap[entrepreneur._id] = {
+        name: entrepreneur.name,
+        email: entrepreneur.email,
+        phone: entrepreneur.contactNumber,
+        location: entrepreneur.location
+      };
+    });
+
+    // 6. Format the response with investment amount and entrepreneur info
+    const investedStartups = startups.map(startup => {
+      const investment = investments.find(inv => inv.startupId.equals(startup._id));
+      const entrepreneurInfo = entrepreneurMap[startup.entrepreneurId] || {};
+      
+      return {
+        id: startup._id,
+        name: startup.startupName,
+        description: startup.description,
+        industry: startup.industry,
+        image: startup.startupImage.url,
+        investment: `$${investment.amount.toLocaleString()}`,
+        investmentAmount: investment.amount, // Keep raw amount for calculations
+        fundingRequired: startup.fundingRequired,
+        fundingReceived: startup.fundingReceived,
+        stage: startup.stage,
+        status: startup.status,
+        investedAt: investment.createdAt,
+        entrepreneur: {
+          id: startup.entrepreneurId,
+          name: entrepreneurInfo.name,
+          email: entrepreneurInfo.email,
+          phone: entrepreneurInfo.phone,
+          location: entrepreneurInfo.location
+        }
+      };
+    });
+
+    res.json({
+      success: true,
+      data: investedStartups,
+      count: investedStartups.length, // Number of unique startups invested in
+      totalInvested: totalInvested,   // Sum of all investment amounts
+      stats: {                        // Additional statistics
+        averageInvestment: totalInvested / investments.length, // Average per investment
+        uniqueStartups: startupIds.length,
+        totalInvestments: investments.length // Count of all investments (may include multiple per startup)
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching invested startups:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch invested startups',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////
+/*                      Was Working
+// Get all startups that the current investor has invested in
+router.get('/:investorId', async (req, res) => {
+  try {
+    
+    
+    // 1. Find all investments for the current investor
+    const investments = await Investment.find({ 
+      investorId: req.params.investorId,  // From authenticated user
+      paymentStatus: 'completed' // Only completed investments
+    });
+
+    // 2. Extract unique startup IDs from investments
+    const startupIds = [...new Set(investments.map(inv => inv.startupId))];
+
+    if (startupIds.length === 0) {
+      return res.json({
+        success: true,
+        message: 'You have not invested in any startups yet',
+        data: []
+      });
+    }
+
+    // 3. Get detailed information about these startups
+    const startups = await Startup.find({
+      _id: { $in: startupIds }
+    }).select('startupName description industry startupImage fundingRequired fundingReceived stage status entrepreneurId');
+
+    // 4. Format the response with investment amount for each startup
+    const investedStartups = startups.map(startup => {
+      const investment = investments.find(inv => inv.startupId.equals(startup._id));
+      return {
+        id: startup._id,
+        name: startup.startupName,
+        entrepreneurId: startup.entrepreneurId,
+        description: startup.description,
+        industry: startup.industry,
+        image: startup.startupImage.url,
+        investment: `$${investment.amount.toLocaleString()}`,
+        fundingRequired: startup.fundingRequired,
+        fundingReceived: startup.fundingReceived,
+        stage: startup.stage,
+        status: startup.status,
+        investedAt: investment.createdAt
+        // Add any other fields you need
+      };
+    });
+
+    res.json({
+      success: true,
+      data: investedStartups
+    });
+
+  } catch (error) {
+    console.error('Error fetching invested startups:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch invested startups'
+    });
+  }
+});    .........................................*/
+
+
+
+
+
+
+
+
+/*
 // Stripe webhook handler
 router.post('/webhook', express.raw({type: 'application/json'}), async (req, res) => {
     const sig = req.headers['stripe-signature'];
@@ -287,6 +480,6 @@ router.get('/verify-payment', async (req, res) => {
             error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
         });
     }
-});
+});*/
 
 module.exports = router;

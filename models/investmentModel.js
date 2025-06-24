@@ -1,12 +1,12 @@
 const mongoose = require('mongoose');
 
 const investmentSchema = new mongoose.Schema({
-    investor: {
+    investorId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
-        required: false
+        required: true
     },
-    startup: {
+    startupId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Startup',
         required: true
@@ -25,19 +25,7 @@ const investmentSchema = new mongoose.Schema({
         type: String,
         enum: ['pending', 'completed', 'failed', 'refunded'],
         default: 'pending'
-    },
-    transactionDetails: {
-        type: Object,
-        default: null
-    },
-    refunds: [{
-        amount: Number,
-        reason: String,
-        createdAt: {
-            type: Date,
-            default: Date.now
-        }
-    }]
+    }
 }, { 
     timestamps: true,
     toJSON: { virtuals: true },
@@ -45,22 +33,22 @@ const investmentSchema = new mongoose.Schema({
 });
 
 // Indexes for better performance
-investmentSchema.index({ investor: 1 });
-investmentSchema.index({ startup: 1 });
+investmentSchema.index({ investorId: 1 });
+investmentSchema.index({ startupId: 1 });
 investmentSchema.index({ stripeSessionId: 1 }, { unique: true });
 investmentSchema.index({ createdAt: -1 });
 
 // Virtuals for easier population
 investmentSchema.virtual('investorDetails', {
     ref: 'User',
-    localField: 'investor',
+    localField: 'investorId',
     foreignField: '_id',
     justOne: true
 });
 
 investmentSchema.virtual('startupDetails', {
     ref: 'Startup',
-    localField: 'startup',
+    localField: 'startupId',
     foreignField: '_id',
     justOne: true
 });
@@ -70,8 +58,8 @@ investmentSchema.pre('save', async function(next) {
     try {
         // Validate references exist
         const [investorExists, startupExists] = await Promise.all([
-            mongoose.model('User').exists({ _id: this.investor }),
-            mongoose.model('Startup').exists({ _id: this.startup })
+            mongoose.model('User').exists({ _id: this.investorId }),
+            mongoose.model('Startup').exists({ _id: this.startupId })
         ]);
         
         if (!investorExists) throw new Error('Invalid investor reference');
