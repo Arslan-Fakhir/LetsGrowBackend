@@ -96,11 +96,26 @@ router.get('/:investorId', async (req, res) => {
       paymentStatus: 'completed'
     });
 
-    // 2. Calculate total investment sum across all investments
-    const totalInvested = investments.reduce((sum, investment) => sum + investment.amount, 0);
+    // 2. Group investments by startupId and calculate total investment per startup
+    const investmentsByStartup = investments.reduce((acc, investment) => {
+      const startupId = investment.startupId.toString();
+      if (!acc[startupId]) {
+        acc[startupId] = {
+          totalAmount: 0,
+          investments: [],
+          firstInvestmentDate: investment.createdAt
+        };
+      }
+      acc[startupId].totalAmount += investment.amount;
+      acc[startupId].investments.push(investment);
+      // Keep track of the earliest investment date
+      if (investment.createdAt < acc[startupId].firstInvestmentDate) {
+        acc[startupId].firstInvestmentDate = investment.createdAt;
+      }
+      return acc;
+    }, {});
 
-    // 3. Extract unique startup IDs from investments
-    const startupIds = [...new Set(investments.map(inv => inv.startupId))];
+    const startupIds = Object.keys(investmentsByStartup);
 
     if (startupIds.length === 0) {
       return res.json({
@@ -108,16 +123,16 @@ router.get('/:investorId', async (req, res) => {
         message: 'You have not invested in any startups yet',
         data: [],
         count: 0,
-        totalInvested: 0  // Return 0 when no investments exist
+        totalInvested: 0
       });
     }
 
-    // 4. Get detailed information about these startups
+    // 3. Get detailed information about these startups
     const startups = await Startup.find({
       _id: { $in: startupIds }
     }).select('startupName description industry startupImage fundingRequired fundingReceived stage status entrepreneurId');
 
-    // 5. Get entrepreneur user details for all startups
+    // 4. Get entrepreneur user details for all startups
     const entrepreneurIds = startups.map(startup => startup.entrepreneurId);
     const entrepreneurs = await User.find({
       _id: { $in: entrepreneurIds }
@@ -134,9 +149,9 @@ router.get('/:investorId', async (req, res) => {
       };
     });
 
-    // 6. Format the response with investment amount and entrepreneur info
+    // 5. Format the response with summed investment amount and entrepreneur info
     const investedStartups = startups.map(startup => {
-      const investment = investments.find(inv => inv.startupId.equals(startup._id));
+      const startupInvestments = investmentsByStartup[startup._id.toString()];
       const entrepreneurInfo = entrepreneurMap[startup.entrepreneurId] || {};
       
       return {
@@ -144,33 +159,40 @@ router.get('/:investorId', async (req, res) => {
         name: startup.startupName,
         description: startup.description,
         industry: startup.industry,
-        image: startup.startupImage.url,
-        investment: `$${investment.amount.toLocaleString()}`,
-        investmentAmount: investment.amount, // Keep raw amount for calculations
+        image: startup.startupImage?.url,
+        investment: `$${startupInvestments.totalAmount.toLocaleString()}`,
+        investmentAmount: startupInvestments.totalAmount, // Summed amount for this startup
         fundingRequired: startup.fundingRequired,
         fundingReceived: startup.fundingReceived,
         stage: startup.stage,
         status: startup.status,
-        investedAt: investment.createdAt,
+        investedAt: startupInvestments.firstInvestmentDate, // Date of first investment
         entrepreneur: {
           id: startup.entrepreneurId,
           name: entrepreneurInfo.name,
           email: entrepreneurInfo.email,
           phone: entrepreneurInfo.phone,
           location: entrepreneurInfo.location
-        }
+        },
+        investmentCount: startupInvestments.investments.length // Number of investments in this startup
       };
     });
+
+    // Calculate total invested across all startups
+    const totalInvested = Object.values(investmentsByStartup).reduce(
+      (sum, { totalAmount }) => sum + totalAmount, 0
+    );
 
     res.json({
       success: true,
       data: investedStartups,
       count: investedStartups.length, // Number of unique startups invested in
-      totalInvested: totalInvested,   // Sum of all investment amounts
-      stats: {                        // Additional statistics
-        averageInvestment: totalInvested / investments.length, // Average per investment
+      totalInvested: totalInvested,   // Sum of all investment amounts across all startups
+      stats: {
+        averageInvestmentPerStartup: totalInvested / startupIds.length,
+        averageInvestmentPerTransaction: totalInvested / investments.length,
         uniqueStartups: startupIds.length,
-        totalInvestments: investments.length // Count of all investments (may include multiple per startup)
+        totalTransactions: investments.length
       }
     });
 
@@ -183,8 +205,6 @@ router.get('/:investorId', async (req, res) => {
     });
   }
 });
-
-
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////
