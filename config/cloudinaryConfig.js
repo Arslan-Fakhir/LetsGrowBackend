@@ -8,14 +8,30 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-// Set up storage engine
-const storage = new CloudinaryStorage({
+// User profile storage
+const userStorage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
     folder: 'user-profiles',
     allowed_formats: ['jpg', 'jpeg', 'png'],
-    transformation: [{quality: 'auto',fetch_format:'auto'},{ width: 500, height: 500, crop: 'fill',gravity:'auto' }]
+    transformation: [{quality: 'auto', fetch_format: 'auto'}, {width: 500, height: 500, crop: 'fill', gravity: 'auto'}]
   }
 });
 
-module.exports = { cloudinary, storage };
+// Startup image storage
+const startupStorage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'startup-images',
+    allowed_formats: ['jpg', 'jpeg', 'png'],
+    transformation: [{quality: 'auto', fetch_format: 'auto'}, {width: 800, height: 600, crop: 'fill', gravity: 'auto'}],
+    resource_type: 'image'
+  }
+});
+
+module.exports = { 
+  cloudinary, 
+  userStorage, 
+  startupStorage,
+  CloudinaryStorage 
+};
