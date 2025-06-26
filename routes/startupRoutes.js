@@ -77,7 +77,6 @@ router.post("/sendForm", checkAuth, upload.single('startupImage'), async (req, r
   }
 });
 
-
 // GET /api/startups — Fetch all startup ideas with entrepreneur info for Admin
 router.get("/getIdeas", async (req, res) => {
   try {
@@ -112,11 +111,11 @@ router.get("/startups", async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 });
-
+// update startup ideas for entrepreneurs
 router.put('/:id', upload.single('startupImage'), async (req, res) => {
   try {
     const startup = await Startup.findById(req.params.id);
-    //console.log(startup)
+    console.log("startup id: ",startup)
     if (!startup) {
       return res.status(404).json({ success: false, message: 'Startup not found' });
     }
@@ -159,7 +158,39 @@ router.put('/:id', upload.single('startupImage'), async (req, res) => {
     });
   }
 });
+// update the status or startup for admin   
+router.patch('/status/:id', async (req, res) => {
+  try {
+    const { status, feedback } = req.body;
+    
+    if (!['pending', 'approved', 'rejected'].includes(status)) {
+      return res.status(400).json({ success: false, message: 'Invalid status' });
+    }
 
+    const startup = await Startup.findById(req.params.id);
+    if (!startup) {
+      return res.status(404).json({ success: false, message: 'Startup not found' });
+    }
+
+    startup.status = status;
+    startup.feedback = feedback || startup.feedback;
+    
+    const updatedStartup = await startup.save();
+    
+    res.status(200).json({
+      success: true,
+      message: 'Startup status updated successfully',
+      startup: updatedStartup
+    });
+
+  } catch (error) {
+    console.error('Error updating startup:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to update startup'
+    });
+  }
+});
 /*// PUT /api/startups/:id — Update startup status and feedback
 router.put("/:id", async (req, res) => {
   try {
