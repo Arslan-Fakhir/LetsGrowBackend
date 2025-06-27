@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const User = require('../models/userModel');
+const Investment = require('../models/investmentModel')
+const Startup = require('../models/startupModel')
 const { cloudinary, userStorage } = require('../config/cloudinaryConfig');
 const multer = require('multer');
 const upload = multer({ 
@@ -10,6 +12,82 @@ const upload = multer({
 const authTokenHandler = require('../middlewares/checkAuthToken');
 const responseFunction = require('../utils/responseFunction');
 const bcrypt = require('bcrypt');
+
+router.get('/portfolio/:id',async (req, res) => {
+  try {
+    const investorId = req.params.id;
+    console.log("investor id: ",investorId)
+    // Get all investments for the investor
+    const investments = await Investment.find({ investorId, paymentStatus: 'completed' })
+      .populate({
+        path: 'startupDetails',
+        select: 'startupName description industry stage fundingRequired fundingReceived rating teamSize revenue startupImage'
+      })
+      .sort({ createdAt: -1 });
+
+    // Calculate portfolio metrics
+    const totalInvestments = investments.length;
+    const totalAmount = investments.reduce((sum, inv) => sum + inv.amount, 0);
+    
+    // Calculate portfolio value (simplified - could be more sophisticated)
+    const portfolioValue = investments.reduce((sum, inv) => {
+      const startup = inv.startupDetails;
+      if (!startup) return sum;
+      
+      // Simple valuation based on funding progress and investment amount
+      const valuationMultiplier = 1 + (startup.fundingReceived / startup.fundingRequired);
+      return sum + (inv.amount * valuationMultiplier);
+    }, 0);
+
+    // Calculate industry breakdown
+    const industryBreakdown = {};
+    investments.forEach(inv => {
+      const industry = inv.startupDetails?.industry || 'Other';
+      const amount = inv.amount;
+      
+      if (!industryBreakdown[industry]) {
+        industryBreakdown[industry] = 0;
+      }
+      industryBreakdown[industry] += amount;
+    });
+
+    // Convert to percentages
+    const total = Object.values(industryBreakdown).reduce((sum, val) => sum + val, 0);
+    for (const [industry, amount] of Object.entries(industryBreakdown)) {
+      industryBreakdown[industry] = Math.round((amount / total) * 100);
+    }
+
+    // Create recent activity
+    const recentActivity = investments.slice(0, 5).map(inv => ({
+      type: 'investment',
+      startup: inv.startupDetails.startupName,
+      amount: inv.amount,
+      date: inv.createdAt
+    }));
+
+    // Add some mock updates (in a real app, these would come from startup updates)
+    recentActivity.push({
+      type: 'update',
+      startup: investments[0]?.startupDetails?.startupName,
+      message: 'Reached new milestone',
+      date: new Date()
+    });
+
+    res.json({
+      totalInvestments,
+      totalAmount,
+      activeInvestments: totalInvestments, // Simplified - could track active vs exited
+      portfolioValue,
+      investments,
+      industryBreakdown,
+      recentActivity
+    });
+
+  } catch (error) {
+    console.error('Error fetching portfolio:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
 
 
 // Get user profile
@@ -152,7 +230,27 @@ router.put('/profile', authTokenHandler, upload.single('profileImage'), async (r
 });
 
 
+
 module.exports = router;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
