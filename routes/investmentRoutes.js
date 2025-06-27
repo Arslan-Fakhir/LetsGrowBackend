@@ -10,10 +10,9 @@ const { authenticateUser } = require('../middlewares/checkAuthToken');
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 // Create Stripe checkout session
-router.post('/create-checkout-session',  async (req, res) => {
+router.post('/create-checkout-session', async (req, res) => {
   try {
     const { amount, startupId, startupName, image, currency, investorId } = req.body;
-
 
     // Validate input
     if (!amount || amount <= 0 || !startupId || !currency) {
@@ -31,8 +30,8 @@ router.post('/create-checkout-session',  async (req, res) => {
           currency: currency.toLowerCase(),
           product_data: {
             name: `${startupId}`,
-            images: image ? [image]: [],
-            description:`Startup: ${startupName}`   
+            images: image ? [image] : [],
+            description: `Startup: ${startupName}`   
           },
           unit_amount: Math.round(amount * 100), // Convert to cents
         },
@@ -48,13 +47,132 @@ router.post('/create-checkout-session',  async (req, res) => {
         startupName,
       },
     });
+    console.log("session id: ",session.id)
+    // Return only the session ID - payment will be handled by webhook
+    res.json({ 
+      success: true,
+      data: { id: session.id }
+    });
 
-    //////////////////          Testing         /////////////////
-    //console.log('req data',req.body)
-    //console.log('Backend send session id: ',session.id)
-    /////////////////////////////////////////////////////////////
+  } catch (error) {
+    console.error('Error creating checkout session:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Failed to create payment session'
+    });
+  }
+});
 
-    if(session){
+// Webhook handler for Stripe events
+router.post('/webhook', express.raw({type: 'application/json'}), async (req, res) => {
+  const sig = req.headers['stripe-signature'];
+  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
+  } catch (err) {
+    console.error('⚠️ Webhook signature verification failed:', err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  // Handle the event
+  switch (event.type) {
+    case 'checkout.session.completed':
+      const session = event.data.object;
+      await handleCheckoutSessionCompleted(session);
+      break;
+    case 'checkout.session.async_payment_succeeded':
+      const asyncSession = event.data.object;
+      await handleCheckoutSessionCompleted(asyncSession);
+      break;
+    default:
+      console.log(`Unhandled event type ${event.type}`);
+  }
+
+  res.json({received: true});
+});
+
+async function handleCheckoutSessionCompleted(session) {
+  try {
+    // Only proceed if payment was successful
+    if (session.payment_status === 'paid') {
+      // Check if investment already exists
+      const existingInvestment = await Investment.findOne({ 
+        stripeSessionId: session.id 
+      });
+
+      if (existingInvestment) {
+        console.log(`Investment already exists for session: ${session.id}`);
+        return;
+      }
+
+      // Create new investment
+      const investment = new Investment({
+        investorId: session.client_reference_id,
+        startupId: session.metadata.startupId,
+        amount: parseFloat(session.metadata.amount),
+        stripeSessionId: session.id,
+        paymentStatus: 'completed'
+      });
+
+      await investment.save();
+
+      // Update startup's funding
+      await Startup.findByIdAndUpdate(
+        session.metadata.startupId,
+        { $inc: { fundingReceived: parseFloat(session.metadata.amount) } },
+        { new: true }
+      );
+
+      console.log(`💰 Payment succeeded! Investment recorded for session: ${session.id}`);
+    } else {
+      console.warn(`Payment status is ${session.payment_status}. Skipping investment save.`);
+    }
+  } catch (error) {
+    console.error('Error handling checkout.session.completed:', error);
+  }
+}
+
+router.get('/verify-payment', async (req, res) => {
+  try {
+    const { session_id } = req.query;
+    console.log("Verify session id: ",session_id)
+    console.log('Verifying payment for session:', session_id);
+    
+    if (!session_id) {
+      console.log('No session ID provided');
+      return res.status(400).json({ 
+        success: false,
+        message: 'Session ID is required'
+      });
+    }
+
+    // Check Stripe for payment status
+    const session = await stripe.checkout.sessions.retrieve(session_id);
+    console.log('Stripe session status:', session.payment_status);
+    
+    if (session.payment_status !== 'paid') {
+      console.log('Payment not completed');
+      return res.status(400).json({ 
+        success: false,
+        message: 'Payment not completed'
+      });
+    }
+
+    // Check if investment exists
+    const investment = await Investment.findOne({ stripeSessionId: session_id });
+    console.log('Investment record found:', !!investment);
+    
+    if (!investment) {
+      console.log('No investment record found\n\n');
+      
+      //////////////////          Testing         /////////////////
+      //console.log('req data',req.body)
+      //console.log('Check investment session id: ',session_id)
+      /////////////////////////////////////////////////////////////
+
         const investment = new Investment({
             investorId: session.client_reference_id,
             startupId: session.metadata.startupId,
@@ -70,23 +188,24 @@ router.post('/create-checkout-session',  async (req, res) => {
             { $inc: { fundingReceived: parseFloat(session.metadata.amount) } },
             { new: true }
         );
+    
     }
-    
-    
+
+    console.log('Payment verified successfully');
     res.json({ 
       success: true,
-      data: { id: session.id } // Ensure this matches frontend expectation
+      message: 'Payment verified',
+      data: investment
     });
 
   } catch (error) {
-    console.error('Error:', error);
+    console.error('Payment verification error:', error);
     res.status(500).json({ 
       success: false,
-      message: 'Payment failed'
+      message: 'Failed to verify payment'
     });
   }
 });
-
 
 router.get('/:investorId', async (req, res) => {
   try {
@@ -207,6 +326,29 @@ router.get('/:investorId', async (req, res) => {
 });
 
 
+module.exports = router;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ////////////////////////////////////////////////////////////////////////////////////////////
 /*                      Was Working
 // Get all startups that the current investor has invested in
@@ -269,12 +411,6 @@ router.get('/:investorId', async (req, res) => {
     });
   }
 });    .........................................*/
-
-
-
-
-
-
 
 
 /*
@@ -501,5 +637,3 @@ router.get('/verify-payment', async (req, res) => {
         });
     }
 });*/
-
-module.exports = router;
