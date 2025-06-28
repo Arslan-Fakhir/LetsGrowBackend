@@ -325,6 +325,121 @@ router.get('/:investorId', async (req, res) => {
   }
 });
 
+// Update the /all endpoint in investmentRoutes.js
+router.get('/all/:id', async (req, res) => {
+  try {
+    // Check if user is admin
+    const user = await User.findById(req.params.id);
+    if (!user || user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized access'
+      });
+    }
+    //console.log("\n\n\n\n\nhello : ",user)
+    const investments = await Investment.find()
+      .populate({
+        path: 'investorId',
+        select: 'name email contactNumber profileImage paymentStatus'
+      })
+      .populate({
+        path: 'startupId',
+        select: 'startupName entrepreneurId',
+        populate: {
+          path: 'entrepreneurId',
+          select: 'name'
+        }
+      })
+      .sort({ createdAt: -1 });
+      console.log("\n\n Investment : ",investments)
+    // Format the response to match frontend expectations
+    const formattedInvestments = investments.map(investment => ({
+      _id: investment._id,
+      investorName: investment.investorId?.name || 'Unknown',
+      investorImage: investment.investorId?.profileImage?.url || '',
+      amount: investment.amount,
+      program: investment.startupId?.startupName || 'General Donation',
+      startupId: investment.startupId?._id || null,
+      startupTitle: investment.startupId?.startupName || 'General Donation',
+      entrepreneur: investment.startupId?.entrepreneurId?.name || 'Platform',
+      investorEmail: investment.investorId?.email || '',
+      investorPhone: investment.investorId?.contactNumber || '',
+      date: investment.createdAt.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      }),
+      description: `Investment in ${investment.startupId?.startupName || 'the platform'}`,
+      attachments: investment.attachments || [],
+      status: investment.paymentStatus,
+      feedback: investment.feedback || ''
+    }));
+
+    res.json({
+      success: true,
+      data: formattedInvestments
+    });
+
+  } catch (error) {
+    console.error('Error fetching investments:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch investments'
+    });
+  }
+});
+
+// Update investment status
+router.patch('/status/:id',  async (req, res) => {
+  try {
+    const { status, feedback } = req.body;
+    
+    if (!['pending', 'approved', 'rejected'].includes(status)) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Invalid status value' 
+      });
+    }
+
+    // Check if user is admin
+    const user = await User.findById(req.userId);
+    if (!user || user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized access'
+      });
+    }
+
+    const updatedInvestment = await Investment.findByIdAndUpdate(
+      req.params.id,
+      { 
+        status,
+        feedback: feedback || undefined 
+      },
+      { new: true }
+    );
+
+    if (!updatedInvestment) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Investment not found' 
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Investment status updated successfully',
+      data: updatedInvestment
+    });
+
+  } catch (error) {
+    console.error('Error updating investment status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update investment status'
+    });
+  }
+});
 
 module.exports = router;
 

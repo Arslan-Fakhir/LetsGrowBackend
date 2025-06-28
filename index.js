@@ -51,6 +51,9 @@ const manpowerRoutes = require("./routes/manpowerRoutes");
 const userRoutes = require('./routes/userRoutes');
 const investmentRoutes = require('./routes/investmentRoutes');
 const chatbotRoutes = require('./routes/chatbotOLD');
+const adminRoutes = require('./routes/adminRoutes');
+
+
 
 // Use routes
 app.use('/auth', authRoutes);
@@ -59,7 +62,7 @@ app.use("/api/manpower", manpowerRoutes);
 app.use("/api/user", userRoutes);
 app.use('/api/investment', investmentRoutes);
 app.use('/api/chatbot', chatbotRoutes);
-
+app.use('/api/admin', adminRoutes);
 
 // Health check endpoint
 app.get('/', (req, res) => {
